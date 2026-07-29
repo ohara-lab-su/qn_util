@@ -4,9 +4,12 @@ K.NAKADA, kengo.nakada@gmail.com
 """
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from rmc_dft.rmc_pot.qn.qn_network_analysis import QnNetworkAnalysis
-from rmc_dft.rmc_pot.qn.rmc_constraint_writer import RmcConstraintWriter
-from rmc_dft.rmc_pot.qn.vasp_structure import VaspStructure
+# from rmc_dft.rmc_pot.qn.qn_network_analysis import QnNetworkAnalysis
+# from rmc_dft.rmc_pot.qn.rmc_constraint_writer import RmcConstraintWriter
+# from rmc_dft.rmc_pot.qn.vasp_structure import VaspStructure
+from qn.qn_network_analysis import QnNetworkAnalysis
+from qn.rmc_constraint_writer import RmcConstraintWriter
+from qn.vasp_structure import VaspStructure
 
 
 class QnNetworkBuilder:

@@ -11,8 +11,10 @@ import csv
 
 import numpy as np
 
-from rmc_dft.rmc_pot.qn.config_error import ConfigError
-from rmc_dft.rmc_pot.qn.vasp_structure import VaspStructure
+# from rmc_dft.rmc_pot.qn.config_error import ConfigError
+# from rmc_dft.rmc_pot.qn.vasp_structure import VaspStructure
+from qn.config_error import ConfigError
+from qn.vasp_structure import VaspStructure
 
 
 class QnNetworkAnalysis:

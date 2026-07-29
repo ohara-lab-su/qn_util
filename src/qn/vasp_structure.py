@@ -6,7 +6,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import math
 import numpy as np
 
-from rmc_dft.rmc_pot.qn.config_error import ConfigError
+# from rmc_dft.rmc_pot.qn.config_error import ConfigError
+from qn.config_error import ConfigError
 
 
 class VaspStructure(object):

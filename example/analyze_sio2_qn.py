@@ -10,8 +10,12 @@ CSV、TOP、FNC などのファイルは生成せず、解析結果だけを標�
 from pathlib import Path
 
 from rmc_dft import RmcPot, RmcPotLog
-from rmc_dft.rmc_pot.qn.qn_network_analysis import QnNetworkAnalysis
-from rmc_dft.rmc_pot.qn.vasp_structure import VaspStructure
+
+# from rmc_dft.rmc_pot.qn.qn_network_analysis import QnNetworkAnalysis
+# from rmc_dft.rmc_pot.qn.vasp_structure import VaspStructure
+from qn.qn_network_analysis import QnNetworkAnalysis
+from qn.vasp_structure import VaspStructure
+
 from x_logger import XLogger
 
 

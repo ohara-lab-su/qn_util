@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """VASP 構造から Qn 分布の個数と比率を表示する。
 
-Qn network の判定条件は、このファイル前方の ``QN_CONFIG`` にまとめている。
-外部 JSON 設定ファイルは使用しない。
+Qn のパラメータは手動設定または RMC_POT free-format *.dat の [ SNC ] から取得する。
+どちらの場合も Qn の数え方は RMC_POT SNC 定義の単一実装を使用する。
 CSV、TOP、FNC などのファイルは生成せず、解析結果だけを標準出力する。
 """
 
@@ -49,24 +49,34 @@ ELEMENT_INFO = [
     "O",
 ]
 
-# Qn解析に必要な設定だけをまとめる。
+# Qn パラメータの取得方法。
 #
-# first_mode:
-#     "cutoff"
-#         first_min～first_max 内の第一近接原子をすべて使用する。
-#         Q5以上を含めて数える場合はこちらを使用する。
+#     "manual"
+#         下の QN_CONFIG に書いた値を使う。
 #
-#     "nearest"
-#         first_min～first_max 内から近い順に first_nearest_n 個だけ使用する。
-#         first_nearest_n=4 の場合、Q5以上は出ない。
+#     "rmc_dat"
+#         実際に RMC_POT で使う free-format *.dat の [ SNC ] から
+#         CTYPE_FTYPE_FROM_TO / STYPE_FROM_TO を読み、Qn 距離値を手入力しない。
 #
-# second_use_first_network:
-#     False
-#         第一近接と第二近接を、それぞれ独立した距離範囲で判定する。
-#         RMC_POTのSNCと同じ二段階の距離判定に対応する。
+# どちらのモードでも Qn の数え方は完全に同じで、
+# QnNetworkAnalysis の RMC_POT SNC 互換ロジックだけを使う。
+PARAMETER_MODE = "manual"
+
+# PARAMETER_MODE="rmc_dat" のときに探索する RMC_POT parameter file。
+RMC_DAT_PATHS = [
+    Path("aaa.dat"),
+    Path("aaa.freers"),
+    Path("aaa.freer"),
+    Path("aaa.free"),
+]
+
+# PARAMETER_MODE="manual" のときだけ使う。
+# RMC_POT free-format の [ SNC ] で言えば、
+#   CTYPE_FTYPE_FROM_TO = central first first_min first_max
+#   STYPE_FROM_TO       = second second_min second_max
+# に対応する。
 #
-#     True
-#         第一近接networkの逆接続を第二近接判定へ再利用する。
+# Qn の数え方を変更するオプションは存在しない。
 QN_CONFIG = {
     "structure": {
         # POSCARに元素名行がない場合に使用する元素順。
@@ -76,37 +86,28 @@ QN_CONFIG = {
         ],
     },
     "network": {
-        # Qnを求める中心元素。
+        # RMC_POT SNC の central type。1種類だけ指定する。
         "central_types": [
             "Si",
         ],
 
-        # 中心元素と第二近接元素の間をつなぐ第一近接元素。
+        # RMC_POT SNC の first-neighbour type。1種類だけ指定する。
         "bridge_types": [
             "O",
         ],
 
-        # bridgeを介して接続する第二近接元素。
-        "second_types": [
-            "Si",
-        ],
-
-        # 中心元素－bridge元素の距離範囲 [Å]。
+        # central-first の距離範囲 [A]。
         "first_min": 1.2,
         "first_max": 1.9,
 
-        # Q5以上も数えるため、距離範囲内のbridgeをすべて使用する。
-        "first_mode": "cutoff",
-
-        # first_mode="nearest" の場合だけ使用する。
-        "first_nearest_n": 4,
-
-        # bridge元素－第二近接元素の距離範囲 [Å]。
-        "second_min": 1.2,
-        "second_max": 1.9,
-
-        # RMC_POT SNCと同様に、第二近接を独立した距離範囲で判定する。
-        "second_use_first_network": False,
+        # RMC_POT の STYPE_FROM_TO に対応。複数 second type も指定可能。
+        "second_neighbors": [
+            {
+                "type": "Si",
+                "min": 1.2,
+                "max": 1.9,
+            },
+        ],
     },
 }
 
@@ -195,18 +196,53 @@ def resolve_poscar_path() -> Path:
     )
 
 
+def resolve_qn_config():
+    """Qn parameter source を解決する。
+
+    parameter source が manual でも rmc_dat でも、返された設定は同じ
+    RMC_POT SNC 互換 Qn counting routine に渡される。
+    """
+    mode = PARAMETER_MODE.strip().lower()
+
+    if mode == "manual":
+        return QN_CONFIG, "embedded QN_CONFIG"
+
+    if mode == "rmc_dat":
+        dat_path = None
+        for candidate in RMC_DAT_PATHS:
+            if candidate.is_file():
+                dat_path = candidate
+                break
+        if dat_path is None:
+            raise FileNotFoundError(
+                "RMC_POT parameter file が見つかりません: %s"
+                % ", ".join(str(path) for path in RMC_DAT_PATHS)
+            )
+
+        config = QnNetworkAnalysis.network_config_from_rmc_dat(
+            str(dat_path),
+            atom_types=ELEMENT_INFO,
+        )
+        return config, "RMC_POT SNC from %s" % dat_path
+
+    raise ValueError(
+        "PARAMETER_MODE は 'manual' または 'rmc_dat' です: %s" % PARAMETER_MODE
+    )
+
+
 def main() -> None:
     """VASP 構造を解析し、Qnごとの個数と比率を表示する。"""
     poscar_path = resolve_poscar_path()
+    qn_config, qn_config_source = resolve_qn_config()
 
-    atom_types = QnNetworkAnalysis.get_structure_atom_types(QN_CONFIG)
+    atom_types = QnNetworkAnalysis.get_structure_atom_types(qn_config)
     structure = VaspStructure.read_poscar(
         str(poscar_path),
         atom_types,
     )
     analysis = QnNetworkAnalysis(
         structure=structure,
-        config=QN_CONFIG,
+        config=qn_config,
     )
 
     qn_counts = analysis.get_qn_counts()
@@ -214,7 +250,7 @@ def main() -> None:
 
     print("Qn distribution")
     print("VASP structure:", poscar_path)
-    print("Qn config: embedded QN_CONFIG")
+    print("Qn config:", qn_config_source)
     print("Total central atoms:", total_count)
 
     if total_count == 0:

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import itertools
 import json
 import math
+import re
 from collections import Counter, defaultdict
 import csv
 
@@ -182,6 +183,240 @@ class QnNetworkAnalysis:
         if "qn" in config:
             return config["qn"]
         raise ConfigError("config に network がありません。")
+
+    @staticmethod
+    def _strip_rmc_symbol(symbol: str) -> str:
+        """RMC_POT の CHEMICAL-SYMBOLS を VASP の元素ラベルへ寄せる。
+
+        例: ``Si4+`` -> ``Si``, ``O2-`` -> ``O``。
+        元素記号として解釈できない文字列はそのまま返す。
+        """
+        match = re.match(r"^([A-Z][a-z]?)", str(symbol).strip())
+        if match is None:
+            return str(symbol).strip()
+        return match.group(1)
+
+    @staticmethod
+    def _parse_free_format_sections(path: str) -> List[Tuple[str, Dict[str, List[List[str]]]]]:
+        """RMC_POT free-format ``*.dat`` を section 単位で読む。
+
+        同一 section の複数 instance と、同一 keyword の複数出現を保持する。
+        keyword の値が次行へ継続する形式にも対応する。
+        """
+        sections = []
+        current_tag = None
+        current_data = None
+        current_key = None
+        current_values = None
+
+        with open(path, "r", encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.split("!", 1)[0].strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                if line.startswith("[") and "]" in line:
+                    tag = line[1:line.index("]")].strip().upper()
+                    current_tag = tag
+                    current_data = {}
+                    sections.append((tag, current_data))
+                    current_key = None
+                    current_values = None
+                    continue
+
+                if current_data is None:
+                    continue
+
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    key = key.strip().upper()
+                    values = value.split()
+                    current_data.setdefault(key, []).append(values)
+                    current_key = key
+                    current_values = current_data[key][-1]
+                    continue
+
+                # RMC_POT free format では keyword の複数 parameter を次行へ継続できる。
+                if current_key is not None and current_values is not None:
+                    current_values.extend(line.split())
+
+        return sections
+
+    @staticmethod
+    def network_config_from_rmc_dat(
+        path: str,
+        atom_types: Optional[Sequence[str]] = None,
+    ) -> Dict[str, Any]:
+        """RMC_POT ``*.dat`` の ``[ SNC ]`` から Qn 幾何条件を作る。
+
+        Qn の目標値、fraction、sigma は「どの Qn をどれだけ要求するか」の
+        constraint parameter であり、Qn の数え方そのものには使わない。
+        同じ幾何条件で Q0-Q5 など複数の SNC が定義されている場合は一つにまとめる。
+        異なる幾何条件の SNC が同じファイルに存在する場合は、自動的に混ぜずに停止する。
+        """
+        sections = QnNetworkAnalysis._parse_free_format_sections(path)
+
+        chemical_symbols = None
+        for tag, data in sections:
+            if tag != "GENERAL":
+                continue
+            values_list = data.get("CHEMICAL-SYMBOLS", [])
+            if values_list:
+                chemical_symbols = [
+                    QnNetworkAnalysis._strip_rmc_symbol(v) for v in values_list[-1]
+                ]
+
+        type_labels = chemical_symbols if chemical_symbols is not None else (list(atom_types) if atom_types is not None else None)
+        if type_labels is None:
+            raise ConfigError(
+                "RMC_POT *.dat の atom type index を VASP 元素へ対応付けられません。"
+                " CHEMICAL-SYMBOLS または atom_types が必要です。"
+            )
+        type_labels = [QnNetworkAnalysis._strip_rmc_symbol(v) for v in type_labels]
+
+        geometries = []
+        for tag, data in sections:
+            if tag != "SNC":
+                continue
+
+            ctype_values = data.get("CTYPE_FTYPE_FROM_TO", [])
+            stype_values = data.get("STYPE_FROM_TO", [])
+            if not ctype_values or not stype_values:
+                raise ConfigError(
+                    "[ SNC ] には CTYPE_FTYPE_FROM_TO と STYPE_FROM_TO が必要です。"
+                )
+
+            cvals = ctype_values[-1]
+            if len(cvals) != 4:
+                raise ConfigError(
+                    "CTYPE_FTYPE_FROM_TO は central_type, first_type, rmin, rmax の4値です。"
+                )
+            central_type_index = int(cvals[0])
+            first_type_index = int(cvals[1])
+            first_min = float(cvals[2])
+            first_max = float(cvals[3])
+
+            if central_type_index < 1 or central_type_index > len(type_labels):
+                raise ConfigError("SNC central type index が atom type 数の範囲外です。")
+            if first_type_index < 1 or first_type_index > len(type_labels):
+                raise ConfigError("SNC first type index が atom type 数の範囲外です。")
+
+            second_neighbors = []
+            for svals in stype_values:
+                if len(svals) != 3:
+                    raise ConfigError(
+                        "STYPE_FROM_TO は second_type, rmin, rmax の3値です。"
+                    )
+                second_type_index = int(svals[0])
+                if second_type_index < 1 or second_type_index > len(type_labels):
+                    raise ConfigError("SNC second type index が atom type 数の範囲外です。")
+                second_neighbors.append(
+                    {
+                        "type": type_labels[second_type_index - 1],
+                        "min": float(svals[1]),
+                        "max": float(svals[2]),
+                    }
+                )
+
+            # STYPE の順序は Qn 判定結果に影響しないので signature では整列する。
+            signature_second = tuple(
+                sorted(
+                    (x["type"], float(x["min"]), float(x["max"]))
+                    for x in second_neighbors
+                )
+            )
+            signature = (
+                type_labels[central_type_index - 1],
+                type_labels[first_type_index - 1],
+                first_min,
+                first_max,
+                signature_second,
+            )
+            geometries.append((signature, second_neighbors))
+
+        if not geometries:
+            raise ConfigError("RMC_POT *.dat に [ SNC ] がありません。")
+
+        unique = {}
+        for signature, second_neighbors in geometries:
+            unique.setdefault(signature, second_neighbors)
+
+        if len(unique) != 1:
+            raise ConfigError(
+                "RMC_POT *.dat に異なる Qn/SNC 幾何条件が複数あります。"
+                " 自動解析では一意に選べません。"
+            )
+
+        signature, second_neighbors = next(iter(unique.items()))
+        central_type, bridge_type, first_min, first_max, _ = signature
+        return {
+            "structure": {"atom_types": list(type_labels)},
+            "network": {
+                "central_types": [central_type],
+                "bridge_types": [bridge_type],
+                "first_min": first_min,
+                "first_max": first_max,
+                "second_neighbors": second_neighbors,
+            },
+        }
+
+    @staticmethod
+    def get_second_neighbor_specs(qn_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """RMC_POT SNC の second-neighbour type/range 定義を返す。
+
+        推奨形式は ``second_neighbors`` で、RMC_POT の複数 ``STYPE_FROM_TO`` に
+        一対一に対応する。従来設定 ``second_types`` + ``second_min/max`` も、
+        同一距離範囲を各 second type に適用する表現として読み込める。
+        """
+        if "second_neighbors" in qn_config:
+            specs = []
+            for item in qn_config["second_neighbors"]:
+                specs.append(
+                    {
+                        "type": str(QnNetworkAnalysis.get_required(item, "type")),
+                        "min": float(QnNetworkAnalysis.get_required(item, "min")),
+                        "max": float(QnNetworkAnalysis.get_required(item, "max")),
+                    }
+                )
+            if not specs:
+                raise ConfigError("network.second_neighbors が空です。")
+            return specs
+
+        second_types = list(QnNetworkAnalysis.get_required(qn_config, "second_types"))
+        if "second_ranges" in qn_config:
+            ranges = qn_config["second_ranges"]
+            specs = []
+            for atom_type in second_types:
+                if atom_type not in ranges:
+                    raise ConfigError("second_ranges に %s がありません。" % atom_type)
+                values = ranges[atom_type]
+                if len(values) != 2:
+                    raise ConfigError("second_ranges[%s] は [min, max] です。" % atom_type)
+                specs.append(
+                    {"type": atom_type, "min": float(values[0]), "max": float(values[1])}
+                )
+            return specs
+
+        second_min = float(QnNetworkAnalysis.get_required(qn_config, "second_min"))
+        second_max = float(QnNetworkAnalysis.get_required(qn_config, "second_max"))
+        return [
+            {"type": atom_type, "min": second_min, "max": second_max}
+            for atom_type in second_types
+        ]
+
+    @staticmethod
+    def validate_rmcpot_qn_config(qn_config: Dict[str, Any]) -> None:
+        """RMC_POT SNC に存在しない旧 Qn 判定オプションを拒否する。"""
+        forbidden = [
+            key
+            for key in ("first_mode", "first_nearest_n", "second_use_first_network")
+            if key in qn_config
+        ]
+        if forbidden:
+            raise ConfigError(
+                "RMC_POT SNC に存在しない Qn 判定オプションがあります: %s. "
+                "これらは削除してください。" % ", ".join(forbidden)
+            )
 
     @staticmethod
     def get_rmc_config(
@@ -361,120 +596,116 @@ class QnNetworkAnalysis:
         poscar: VaspStructure,
         config: Dict[str, Any],
     ):
-        """設定に従って central-bridge-second 型 Qn ネットワークを構築する。
+        """RMC_POT の SNC/Qn 定義そのままで Qn network を構築する。
 
-        Qn 判定の基本は次の通りである。
+        central type ``i`` と first-neighbour type ``j`` の距離が
+        ``dmin1 <= r <= dmax1`` に入る first neighbour をすべて対象にする。
+        各 first neighbour について、``STYPE_FROM_TO`` に対応する second type
+        ``k1..kN`` の少なくとも1原子が指定距離範囲内に存在すれば、その first
+        neighbour を Qn に1つ加える。second atom が複数存在しても寄与は1である。
+        second type が central type と同じ場合、central atom 自身は除外する。
 
-        1. central atom の first neighbour として bridge atom を探す。
-        2. bridge atom の second neighbour として second atom を探す。
-        3. central-bridge-second が成立する bridge の数を、その central atom の Qn とする。
-
-        ``first_mode`` は二種類ある。
-
-        * ``cutoff``: first_min-first_max に入る bridge をすべて採用する。
-        * ``nearest``: first_min-first_max に入る bridge のうち、距離が近い順に
-          ``first_nearest_n`` 個だけ採用する。SiO2 のように四面体性を保ちたい場合に使う。
-
-        ``second_use_first_network`` が True の場合、second neighbour は距離で再探索せず、
-        first_map の逆写像から作る。これは、すでに決めた Si-O bond network と整合した
-        Si-O-Si 判定を行うためのモードである。
+        パラメータ取得方法（手動設定、RMC_POT *.dat から自動取得など）によって
+        この計算ロジックは変化しない。
         """
         qn_config = QnNetworkAnalysis.get_network_config(config)
-        central_types = QnNetworkAnalysis.get_required(qn_config, "central_types")
-        bridge_types = QnNetworkAnalysis.get_required(qn_config, "bridge_types")
-        second_types = QnNetworkAnalysis.get_required(qn_config, "second_types")
+        QnNetworkAnalysis.validate_rmcpot_qn_config(qn_config)
+
+        central_types = list(QnNetworkAnalysis.get_required(qn_config, "central_types"))
+        bridge_types = list(QnNetworkAnalysis.get_required(qn_config, "bridge_types"))
         first_min = float(QnNetworkAnalysis.get_required(qn_config, "first_min"))
         first_max = float(QnNetworkAnalysis.get_required(qn_config, "first_max"))
-        second_min = float(QnNetworkAnalysis.get_required(qn_config, "second_min"))
-        second_max = float(QnNetworkAnalysis.get_required(qn_config, "second_max"))
+        second_specs = QnNetworkAnalysis.get_second_neighbor_specs(qn_config)
+
+        # RMC_POT の1個の SNC は central type と first-neighbour type を各1種類持つ。
+        if len(central_types) != 1:
+            raise ConfigError("RMC_POT SNC 互換の Qn 定義では central_types は1種類です。")
+        if len(bridge_types) != 1:
+            raise ConfigError("RMC_POT SNC 互換の Qn 定義では bridge_types は1種類です。")
+        if first_min > first_max:
+            raise ConfigError("first_min は first_max 以下である必要があります。")
+        for spec in second_specs:
+            if float(spec["min"]) > float(spec["max"]):
+                raise ConfigError(
+                    "second neighbour %s の min は max 以下である必要があります。"
+                    % spec["type"]
+                )
 
         central_indices = QnNetworkAnalysis.select_indices(poscar.labels, central_types)
         bridge_indices = QnNetworkAnalysis.select_indices(poscar.labels, bridge_types)
-        second_indices = QnNetworkAnalysis.select_indices(poscar.labels, second_types)
 
         if len(central_indices) == 0:
             raise ConfigError("central_types に対応する原子がありません。")
         if len(bridge_indices) == 0:
             raise ConfigError("bridge_types に対応する原子がありません。")
-        if len(second_indices) == 0:
-            raise ConfigError("second_types に対応する原子がありません。")
+
+        second_indices_by_spec = []
+        for spec in second_specs:
+            indices = QnNetworkAnalysis.select_indices(poscar.labels, [spec["type"]])
+            if len(indices) == 0:
+                raise ConfigError(
+                    "second neighbour type %s に対応する原子がありません。" % spec["type"]
+                )
+            second_indices_by_spec.append((spec, indices))
 
         data = QnNetworkAnalysis()
-        # first neighbour の取り方は、純粋な距離 cutoff と最近接 N 個の二通り。
-        # SiO2 では第 5 近接 O を誤って bond と見なさないため nearest=4 が有効な場合がある。
-        first_mode = str(qn_config.get("first_mode", "cutoff"))
-        first_map = {}
-        if first_mode == "cutoff":
-            first_map = QnNetworkAnalysis.find_neighbors(
-                central_indices, bridge_indices, poscar, first_min, first_max, True
-            )
-        elif first_mode == "nearest":
-            nearest_n = int(qn_config.get("first_nearest_n", 4))
-            for central in central_indices:
-                distances = []
-                for bridge in bridge_indices:
-                    distance = QnNetworkAnalysis.pbc_distance(
-                        central, bridge, poscar.frac, poscar.cell
-                    )
-                    if distance >= first_min and distance <= first_max:
-                        distances.append((distance, bridge))
-                distances.sort()
-                selected = []
-                for distance, bridge in distances[:nearest_n]:
-                    selected.append(bridge)
-                selected.sort()
-                first_map[central] = selected
-        else:
-            raise ConfigError("qn.first_mode は cutoff または nearest です。")
 
-        # second_use_first_network=True の場合は、bridge-second 関係を距離から独立に
-        # 作り直さず、決定済みの first_map を反転して作る。
-        # これにより、Qn 判定と FNC=4 bond network の整合性を保つ。
-        second_use_first_network = bool(
-            qn_config.get("second_use_first_network", False)
+        # RMC_POT CTYPE_FTYPE_FROM_TO: 距離範囲に入る first neighbour をすべて使う。
+        first_map = QnNetworkAnalysis.find_neighbors(
+            central_indices,
+            bridge_indices,
+            poscar,
+            first_min,
+            first_max,
+            True,
         )
-        if second_use_first_network:
-            bridge_second_map = {}
-            second_type_set = set(second_types)
-            for bridge in bridge_indices:
-                bridge_second_map[bridge] = []
-            for central, bridges in first_map.items():
-                if poscar.labels[central] not in second_type_set:
-                    continue
-                for bridge in bridges:
-                    bridge_second_map[bridge].append(central)
-            for bridge in bridge_second_map.keys():
-                bridge_second_map[bridge] = sorted(set(bridge_second_map[bridge]))
-        else:
-            bridge_second_map = QnNetworkAnalysis.find_neighbors(
-                bridge_indices, second_indices, poscar, second_min, second_max, True
+
+        # RMC_POT STYPE_FROM_TO: second type ごとに独立した距離範囲で探索する。
+        # bridge_second_map は全 STYPE の和集合を保持する。
+        bridge_second_map = {bridge: [] for bridge in bridge_indices}
+        for spec, second_indices in second_indices_by_spec:
+            partial_map = QnNetworkAnalysis.find_neighbors(
+                bridge_indices,
+                second_indices,
+                poscar,
+                float(spec["min"]),
+                float(spec["max"]),
+                True,
             )
+            for bridge, seconds in partial_map.items():
+                bridge_second_map[bridge].extend(seconds)
+        for bridge in bridge_second_map:
+            bridge_second_map[bridge] = sorted(set(bridge_second_map[bridge]))
 
         data.first_map = first_map
         data.bridge_second_map = bridge_second_map
 
-        # central ごとに、別の second atom へ接続している bridge の数を Qn とする。
+        # RMC_POT SNC: 「有効な second neighbour を1個以上持つ first neighbour」の本数が Qn。
         for central in central_indices:
             bridges = first_map[central]
             data.bridges_by_central[central] = list(bridges)
             qn_value = 0
             for bridge in bridges:
-                second_hits = []
-                for second in bridge_second_map.get(bridge, []):
-                    if second == central:
-                        continue
-                    second_hits.append(second)
+                second_hits = [
+                    second
+                    for second in bridge_second_map.get(bridge, [])
+                    if second != central
+                ]
                 data.second_by_bridge_for_central[(central, bridge)] = second_hits
-                if len(second_hits) > 0:
-                    qn_value = qn_value + 1
+                if second_hits:
+                    qn_value += 1
             data.qn_by_central[central] = qn_value
 
+        # 解析・可視化用 network pair。Qn の数え方には使わない。
         for central, bridges in first_map.items():
             for bridge in bridges:
                 data.bond_pairs.add(QnNetworkAnalysis.pair_key(central, bridge))
 
-        for bridge, seconds in bridge_second_map.items():
-            for second in seconds:
+        active_bridges = set()
+        for bridges in first_map.values():
+            active_bridges.update(bridges)
+        for bridge in active_bridges:
+            for second in bridge_second_map.get(bridge, []):
                 data.bond_pairs.add(QnNetworkAnalysis.pair_key(bridge, second))
 
         return data
@@ -921,15 +1152,17 @@ class QnNetworkAnalysis:
             qn_config = QnNetworkAnalysis.get_network_config(config)
             f.write("central_types: %s\n" % " ".join(qn_config["central_types"]))
             f.write("bridge_types : %s\n" % " ".join(qn_config["bridge_types"]))
-            f.write("second_types : %s\n" % " ".join(qn_config["second_types"]))
+            second_specs = QnNetworkAnalysis.get_second_neighbor_specs(qn_config)
             f.write(
                 "first range  : %.4f - %.4f A\n"
                 % (float(qn_config["first_min"]), float(qn_config["first_max"]))
             )
-            f.write(
-                "second range : %.4f - %.4f A\n\n"
-                % (float(qn_config["second_min"]), float(qn_config["second_max"]))
-            )
+            for spec in second_specs:
+                f.write(
+                    "second      : %s %.4f - %.4f A\n"
+                    % (spec["type"], float(spec["min"]), float(spec["max"]))
+                )
+            f.write("\n")
 
             f.write("Qn counts\n")
             f.write("---------\n")

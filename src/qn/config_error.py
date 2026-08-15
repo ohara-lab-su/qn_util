@@ -2,7 +2,6 @@
 K.NAKADA, kengo.nakada@gmail.com
 """
 
-
 class ConfigError(Exception):
     """
     設定ファイルまたは入力構造が不正な場合の例外。

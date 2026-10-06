@@ -2,7 +2,7 @@
 #
 #
 server="zaiene-hpcs2024"
-dst_dir="zaiene_dev/rmc_dft/"
+dst_dir="zaiene_dev/qn/"
 
 # ローカルからリモートへ同期
 rsync -avz -e ssh --delete ./ "$server:~/$dst_dir"

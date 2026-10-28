@@ -1,7 +1,7 @@
 # Qn-Util — Qnネットワーク解析とRMC制約生成
 
-[![en](https://img.shields.io/badge/lang-en-red.svg)](https://ohara-lab-su.github.io/qn_util/en/index.html)
-[![ja](https://img.shields.io/badge/lang-ja-yellow.svg)](https://ohara-lab-su.github.io/qn_util/ja/index.html)
+[![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/ohara-lab-su/qn_util/blob/main/README.md)
+[![ja](https://img.shields.io/badge/lang-ja-yellow.svg)](https://github.com/ohara-lab-su/qn_util/blob/main/README.ja.md)
 
 [![GitHub](https://img.shields.io/badge/GitHub-ohara--lab--su%2Fqn_util-181717?logo=github)](https://github.com/ohara-lab-su/qn_util/)
 [![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Documentation-222222?logo=githubpages&logoColor=white)](https://ohara-lab-su.github.io/qn_util/ja/)

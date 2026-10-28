@@ -1,6 +1,7 @@
 # Qn-Util — Qn Network Analysis and RMC Constraint Generation
 
-[![en](https://img.shields.io/badge/lang-en-red.svg)](https://ohara-lab-su.github.io/qn_util/en/index.html)
+[![en](https://img.shields.io/badge/lang-en-red.svg)](https://github.com/ohara-lab-su/qn_util/blob/main/README.md)
+[![ja](https://img.shields.io/badge/lang-ja-yellow.svg)](https://github.com/ohara-lab-su/qn_util/blob/main/README.ja.md)
 [![ja](https://img.shields.io/badge/lang-ja-yellow.svg)](https://ohara-lab-su.github.io/qn_util/ja/index.html)
 
 [![GitHub](https://img.shields.io/badge/GitHub-ohara--lab--su%2Fqn_util-181717?logo=github)](https://github.com/ohara-lab-su/qn_util/)

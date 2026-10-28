@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qn-util"
-version = "0.0.1"
+version = "0.0.0"
 
 description = "Qn network Tools"
 authors = [
     { name="Kengo NAKADA", email="kengo.nakada@email.com" },
-    { name="Kentaro Kobayashi", email="kobayashi@mat.shimane-u.ac.jp"}
 ]
 readme = "README.md"
 # requires-python = ">=3.8"

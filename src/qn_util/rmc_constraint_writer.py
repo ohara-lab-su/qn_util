@@ -9,12 +9,9 @@ import os
 from pathlib import Path
 from collections import defaultdict
 
-# from rmc_dft.rmc_pot.qn.config_error import ConfigError
-# from rmc_dft.rmc_pot.qn.qn_network_analysis import QnNetworkAnalysis
-# from rmc_dft.rmc_pot.qn.vasp_structure import VaspStructure
-from qn.config_error import ConfigError
-from qn.qn_network_analysis import QnNetworkAnalysis
-from qn.vasp_structure import VaspStructure
+from qn_util.config_error import ConfigError
+from qn_util.qn_network_analysis import QnNetworkAnalysis
+from qn_util.vasp_structure import VaspStructure
 
 
 class RmcConstraintWriter:

@@ -3,8 +3,8 @@ requires = ["setuptools>=71.0","coloredlogs"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "qn"
-version = "0.0.0"
+name = "qn-util"
+version = "0.0.1"
 
 description = "Qn network Tools"
 authors = [
@@ -18,7 +18,7 @@ dependencies = [
     # my-modules
     # "x_logger",
     "xlogger-py",
-    "packmol_util" ,
+    "packmol-util" ,
     # fnc
     "pymatgen",
     # basic

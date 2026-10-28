@@ -7,7 +7,10 @@
 [![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Documentation-222222?logo=githubpages&logoColor=white)](https://ohara-lab-su.github.io/qn_util/ja/)
 [![Ohara Lab](https://img.shields.io/badge/Ohara%20Lab-Home-4B5563?logo=homeassistant&logoColor=white)](https://ohara-lab-su.github.io/index.ja.html)
 
-Qn-Util は VASP の POSCAR/CONTCAR 構造と JSON 設定を入力として、Qn ネットワークの構築・解析および RMC_POT 用の制約ファイル生成を行う Python ライブラリです。Qn 分布、ネットワーク結合、解析レポートを出力します。
+Qn-Util は VASP の POSCAR/CONTCAR 構造と JSON 設定を入力として、
+Qn ネットワークの構築・解析および RMC_POT 用の制約ファイル生成を行う Python ライブラリです。Qn 分布、ネットワーク結合、解析レポートを出力します。
+
+基本的には、RMC_POT 用の制約ファイル生成に特化。study用。
 
 ## 主な構成
 
@@ -32,7 +35,7 @@ builder.write_analysis("sample")
 builder.write_all("sample")
 ```
 
-`write_all` は解析結果と RMC 入力ファイルを生成します。具体的な設定例は `example/` を参照してください。
+`write_all` は解析結果と RMC 入力ファイルを生成します。具体的な設定例は `scripts/` を参照してください。
 
 ## インストール
 
@@ -40,11 +43,22 @@ builder.write_all("sample")
 pip install qn-util
 ```
 
+## サンプルスクリプトの配置
+
+インストール後、作業ディレクトリで以下を実行すると、パッケージに同梱された `scripts/` 以下のファイル（Python スクリプトと `qn_config.json`）をカレントディレクトリへコピーします。
+
+```bash
+qn_util install
+```
+
+同名ファイルが存在する場合は上書きせず、エラーで終了します。上書きする場合のみ `--force` を指定してください。
+
+```bash
+qn_util install --force
+```
+
 ## ドキュメント
 
 チュートリアルでは Qn ネットワーク、FNC、topology、JSON 設定、今後の展開を説明します。API Reference はソースの docstring から生成します。
-
-
-## ドキュメント
 
 [日本語](https://ohara-lab-su.github.io/qn_util/ja/) / [English](https://ohara-lab-su.github.io/qn_util/en/)

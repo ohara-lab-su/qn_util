@@ -22,7 +22,7 @@ SiO2 固有の条件は隣の ``qn_config_sio2_fnc.json`` に置く。
 
 import shutil
 # from rmc_dft.rmc_pot.qn import QnNetworkBuilder
-from qn import QnNetworkBuilder
+from qn_util import QnNetworkBuilder
 
 
 def main() -> None:

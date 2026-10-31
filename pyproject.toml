@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "qn-util"
 version = "0.0.0"
 
-description = "Qn network Tools"
+description = "Python tools for Qn network analysis of atomic structures and generation of RMC_POT FNC=3 constraints and topology files."
 authors = [
     { name="Kengo NAKADA", email="kengo.nakada@email.com" },
 ]
@@ -50,3 +50,9 @@ line-length = 88
 
 [tool.isort]
 profile = "black"
+
+[project.urls]
+Homepage = "https://ohara-lab-su.github.io/qn_util/"
+Documentation = "https://ohara-lab-su.github.io/qn_util/"
+Repository = "https://github.com/ohara-lab-su/qn_util"
+Issues = "https://github.com/ohara-lab-su/qn_util/issues"
